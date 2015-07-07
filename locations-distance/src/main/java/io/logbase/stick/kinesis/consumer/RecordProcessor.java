@@ -63,7 +63,7 @@ public class RecordProcessor implements IRecordProcessor {
 
   private void processRecordsWithRetries(List<Record> records) throws Exception {
     for (Record record : records) {
-      String eventData = decoder.decode(record.getData()).toString();
+      //String eventData = decoder.decode(record.getData()).toString();
       boolean processedSuccessfully = false;
       for (int i = 0; i < NUM_RETRIES; i++) {
         if (businessLogic(record)) {
