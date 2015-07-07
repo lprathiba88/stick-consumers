@@ -2,7 +2,7 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>io.logbase.stick</groupId>
-	<artifactId>locations-fb</artifactId>
+	<artifactId>locations-distance</artifactId>
 	<packaging>jar</packaging>
 	<version>1.0-SNAPSHOT</version>
 	<name>locations-fb</name>
@@ -50,7 +50,7 @@
 					</descriptorRefs>
 					<archive>
 						<manifest>
-							<mainClass>io.logbase.stick.kinesis.consumer.EventsToS3Consumer</mainClass>
+							<mainClass>io.logbase.stick.kinesis.consumer.LocationsToDistanceConsumer</mainClass>
 						</manifest>
 					</archive>
 				</configuration>

@@ -26,7 +26,7 @@ public final class EventsToS3Consumer {
   // time.
   // Position can be one of LATEST (most recent data) or TRIM_HORIZON (oldest
   // available data)
-  private static final InitialPositionInStream SAMPLE_APPLICATION_INITIAL_POSITION_IN_STREAM = InitialPositionInStream.TRIM_HORIZON;
+  private static final InitialPositionInStream INITIAL_POSITION_IN_STREAM = InitialPositionInStream.TRIM_HORIZON;
   private static AWSCredentialsProvider credentialsProvider;
 
   private static void init() {
@@ -48,7 +48,7 @@ public final class EventsToS3Consumer {
     KinesisClientLibConfiguration kinesisClientLibConfiguration = new KinesisClientLibConfiguration(
         CONSUMER_NAME, STREAM_NAME, credentialsProvider, workerId);
     kinesisClientLibConfiguration
-        .withInitialPositionInStream(SAMPLE_APPLICATION_INITIAL_POSITION_IN_STREAM);
+        .withInitialPositionInStream(INITIAL_POSITION_IN_STREAM);
     IRecordProcessorFactory recordProcessorFactory = new RecordProcessorFactory();
     Worker worker = new Worker(recordProcessorFactory,
         kinesisClientLibConfiguration);

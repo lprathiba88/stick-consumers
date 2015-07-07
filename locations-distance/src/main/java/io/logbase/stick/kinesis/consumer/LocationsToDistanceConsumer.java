@@ -14,16 +14,16 @@ import com.amazonaws.services.kinesis.clientlibrary.lib.worker.InitialPositionIn
 import com.amazonaws.services.kinesis.clientlibrary.lib.worker.KinesisClientLibConfiguration;
 import com.amazonaws.services.kinesis.clientlibrary.lib.worker.Worker;
 
-public class LocationsToFirebaseConsumer {
+public class LocationsToDistanceConsumer {
 
-  private static final Log LOG = LogFactory.getLog(LocationsToFirebaseConsumer.class);
+  private static final Log LOG = LogFactory.getLog(LocationsToDistanceConsumer.class);
   public static final String STREAM_NAME = "stick-locations";
   private static final String CONSUMER_NAME = "LocationsToFirebaseConsumer";
   // Initial position in the stream when the application starts up for the first
   // time.
   // Position can be one of LATEST (most recent data) or TRIM_HORIZON (oldest
   // available data)
-  private static final InitialPositionInStream SAMPLE_APPLICATION_INITIAL_POSITION_IN_STREAM = InitialPositionInStream.TRIM_HORIZON;
+  private static final InitialPositionInStream INITIAL_POSITION_IN_STREAM = InitialPositionInStream.TRIM_HORIZON;
   private static AWSCredentialsProvider credentialsProvider;
 
   private static void init() {
@@ -45,7 +45,7 @@ public class LocationsToFirebaseConsumer {
     KinesisClientLibConfiguration kinesisClientLibConfiguration = new KinesisClientLibConfiguration(
         CONSUMER_NAME, STREAM_NAME, credentialsProvider, workerId);
     kinesisClientLibConfiguration
-        .withInitialPositionInStream(SAMPLE_APPLICATION_INITIAL_POSITION_IN_STREAM);
+        .withInitialPositionInStream(INITIAL_POSITION_IN_STREAM);
     IRecordProcessorFactory recordProcessorFactory = new RecordProcessorFactory();
     Worker worker = new Worker(recordProcessorFactory,
         kinesisClientLibConfiguration);
