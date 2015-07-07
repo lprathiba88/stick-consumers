@@ -182,7 +182,7 @@ public class RecordProcessor implements IRecordProcessor {
 
   boolean persistToLocal(Record record, String eventData,
       String eventName) {
-    String fileName = path + getLocalFileName("events");
+    String fileName = path + getLocalFileName("stick_events");
     File file = new File(fileName);
     try {
       FileWriter fw = new FileWriter(file.getAbsoluteFile(), true);
@@ -224,7 +224,7 @@ public class RecordProcessor implements IRecordProcessor {
 
   private String getLocalFileName(String fileName) {
     String localFileName;
-    localFileName = "stick_events" + "-@-" + fileName;
+    localFileName = "events" + "-@-" + fileName;
     return localFileName;
   }
   
