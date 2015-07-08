@@ -29,7 +29,7 @@ import com.amazonaws.services.kinesis.model.Record;
 /**
  * A class used to create Record Processors for every shard.
  *
- * Created by kousik on 7/3/15.
+ * Created by Abishek on 7/3/15.
  */
 
 public class RecordProcessor implements IRecordProcessor {
