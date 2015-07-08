@@ -50,7 +50,7 @@
 					</descriptorRefs>
 					<archive>
 						<manifest>
-							<mainClass>io.logbase.stick.kinesis.consumer.LocationsToDistanceConsumer</mainClass>
+							<mainClass>io.logbase.stick.kinesis.consumer.locationsdistance.LocationsToDistanceConsumer</mainClass>
 						</manifest>
 					</archive>
 				</configuration>

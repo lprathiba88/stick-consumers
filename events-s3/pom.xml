@@ -55,7 +55,7 @@
 					</descriptorRefs>
 					<archive>
 						<manifest>
-							<mainClass>io.logbase.stick.kinesis.consumer.EventsToS3Consumer</mainClass>
+							<mainClass>io.logbase.stick.kinesis.consumer.eventss3.EventsToS3Consumer</mainClass>
 						</manifest>
 					</archive>
 				</configuration>

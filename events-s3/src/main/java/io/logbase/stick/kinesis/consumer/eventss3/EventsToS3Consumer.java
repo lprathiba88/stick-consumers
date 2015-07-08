@@ -1,4 +1,4 @@
-package io.logbase.stick.kinesis.consumer;
+package io.logbase.stick.kinesis.consumer.eventss3;
 
 import java.net.InetAddress;
 import java.util.UUID;
@@ -14,11 +14,14 @@ import com.amazonaws.services.kinesis.clientlibrary.lib.worker.InitialPositionIn
 import com.amazonaws.services.kinesis.clientlibrary.lib.worker.KinesisClientLibConfiguration;
 import com.amazonaws.services.kinesis.clientlibrary.lib.worker.Worker;
 
-public class LocationsToDistanceConsumer {
+/**
+ * Amazon Kinesis Application.
+ */
+public final class EventsToS3Consumer {
 
-  private static final Log LOG = LogFactory.getLog(LocationsToDistanceConsumer.class);
-  public static final String STREAM_NAME = "stick-locations";
-  private static final String CONSUMER_NAME = "LocationsToDistanceConsumer";
+  private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
+  public static final String STREAM_NAME = "stick-events";
+  private static final String CONSUMER_NAME = "EventsToS3Consumer";
   // Initial position in the stream when the application starts up for the first
   // time.
   // Position can be one of LATEST (most recent data) or TRIM_HORIZON (oldest
@@ -49,14 +52,13 @@ public class LocationsToDistanceConsumer {
     IRecordProcessorFactory recordProcessorFactory = new RecordProcessorFactory();
     Worker worker = new Worker(recordProcessorFactory,
         kinesisClientLibConfiguration);
-    LOG.info("Running consumer: " + CONSUMER_NAME + "|" + STREAM_NAME + "|"
-        + workerId);
+
+    LOG.info("Running consumer: " + CONSUMER_NAME +"|"+ STREAM_NAME +"|"+ workerId);
     int exitCode = 0;
     try {
       worker.run();
     } catch (Throwable t) {
-      LOG.info("Caught error while running consumer: " + CONSUMER_NAME + "|"
-          + STREAM_NAME + "|" + workerId);
+      LOG.info("Caught error while running consumer: " + CONSUMER_NAME +"|"+ STREAM_NAME +"|"+ workerId);
       t.printStackTrace();
       exitCode = 1;
     }

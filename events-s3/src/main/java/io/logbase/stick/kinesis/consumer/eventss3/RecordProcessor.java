@@ -1,4 +1,4 @@
-package io.logbase.stick.kinesis.consumer;
+package io.logbase.stick.kinesis.consumer.eventss3;
 
 import java.io.BufferedWriter;
 import java.io.File;

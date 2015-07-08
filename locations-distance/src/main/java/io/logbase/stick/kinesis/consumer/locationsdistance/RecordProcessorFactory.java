@@ -1,4 +1,4 @@
-package io.logbase.stick.kinesis.consumer;
+package io.logbase.stick.kinesis.consumer.locationsdistance;
 
 import com.amazonaws.services.kinesis.clientlibrary.interfaces.IRecordProcessor;
 import com.amazonaws.services.kinesis.clientlibrary.interfaces.IRecordProcessorFactory;

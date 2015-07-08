@@ -1,4 +1,4 @@
-package io.logbase.stick.kinesis.consumer;
+package io.logbase.stick.kinesis.consumer.locationsdistance;
 
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
@@ -90,6 +90,8 @@ public class RecordProcessor implements IRecordProcessor {
     // TODO
     String eventData = decoder.decode(record.getData()).toString();
     LOG.info("EVENT DATA RECEIVED AS: " + eventData);
+    //Calculate distance
+    
     return true;
   }
 
