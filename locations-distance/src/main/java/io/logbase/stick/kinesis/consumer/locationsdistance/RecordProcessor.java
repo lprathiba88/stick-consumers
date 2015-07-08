@@ -185,39 +185,42 @@ public class RecordProcessor implements IRecordProcessor {
   }
   
   private void calculateNewDistance(Distance distance, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
-    // 3. With new location, calculate new distance
-    double travel = calcDistance(distance.getPrevLat(),
-        distance.getPrevLong(), locationLat, locationLong, 'K');
-    LOG.info("Tavel: " + locationSourceID + "|" + travel);
-    // Ignore if this travel is abnormal (very less or very high)
-    if ((travel < 0.001) || (travel > 1))
-      travel = 0;
-    double newTravel = travel + distance.getDistance();
-    LOG.info("New Distance: " + locationSourceID + "|" + newTravel);
-    distance.setDistance(newTravel);
-    distance.setPrevLat(locationLat);
-    distance.setPrevLong(locationLong);
-    distance.setPrevTimestamp(locationTimestamp);
-    // 4. Update the new distance to firebase
-    Map<String, Object> firebaseUpdate = new HashMap<String, Object>();
-    firebaseUpdate.put("distance", newTravel);
-    firebaseUpdate.put("latitude", locationLat);
-    firebaseUpdate.put("longitude", locationLong);
-    firebaseUpdate.put("timestamp", locationTimestamp);
-    distanceRef.setValue(firebaseUpdate);
-    // 5. Send back to kinesis for aggregation
-    JSONObject distanceJson = new JSONObject();
-    distanceJson.put("account_id", locationAccountID);
-    distanceJson.put("source_id", locationSourceID);
-    distanceJson.put("distance", newTravel);
-    distanceJson.put("timestamp", locationTimestamp);
-    String distanceEvent = distanceJson.toString();
-    LOG.info("DISTANCE EVENT TO KINESIS: " + distanceEvent);
-    PutRecordRequest putRecordRequest = new PutRecordRequest();
-    putRecordRequest.setStreamName("stick-distances");
-    putRecordRequest.setData(ByteBuffer.wrap( distanceEvent.getBytes() ));
-    putRecordRequest.setPartitionKey(locationAccountID);  
-    amazonKinesisClient.putRecord( putRecordRequest );
+    if(distance.getPrevTimestamp() < locationTimestamp) {
+      // 3. With new location, calculate new distance
+      double travel = calcDistance(distance.getPrevLat(),
+          distance.getPrevLong(), locationLat, locationLong, 'K');
+      LOG.info("Tavel: " + locationSourceID + "|" + travel);
+      // Ignore if this travel is abnormal (very less or very high)
+      if ((travel < 0.001) || (travel > 1))
+        travel = 0;
+      double newTravel = travel + distance.getDistance();
+      LOG.info("New Distance: " + locationSourceID + "|" + newTravel);
+      distance.setDistance(newTravel);
+      distance.setPrevLat(locationLat);
+      distance.setPrevLong(locationLong);
+      distance.setPrevTimestamp(locationTimestamp);
+      // 4. Update the new distance to firebase
+      Map<String, Object> firebaseUpdate = new HashMap<String, Object>();
+      firebaseUpdate.put("distance", newTravel);
+      firebaseUpdate.put("latitude", locationLat);
+      firebaseUpdate.put("longitude", locationLong);
+      firebaseUpdate.put("timestamp", locationTimestamp);
+      distanceRef.setValue(firebaseUpdate);
+      // 5. Send back to kinesis for aggregation
+      JSONObject distanceJson = new JSONObject();
+      distanceJson.put("account_id", locationAccountID);
+      distanceJson.put("source_id", locationSourceID);
+      distanceJson.put("distance", newTravel);
+      distanceJson.put("timestamp", locationTimestamp);
+      String distanceEvent = distanceJson.toString();
+      LOG.info("DISTANCE EVENT TO KINESIS: " + distanceEvent);
+      PutRecordRequest putRecordRequest = new PutRecordRequest();
+      putRecordRequest.setStreamName("stick-distances");
+      putRecordRequest.setData(ByteBuffer.wrap( distanceEvent.getBytes() ));
+      putRecordRequest.setPartitionKey(locationAccountID);  
+      amazonKinesisClient.putRecord( putRecordRequest );
+    } else 
+      LOG.info("Not calculating new distance as timestamps are not in order");
   }
 
   @Override
