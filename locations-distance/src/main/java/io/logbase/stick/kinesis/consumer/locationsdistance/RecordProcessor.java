@@ -2,6 +2,7 @@ package io.logbase.stick.kinesis.consumer.locationsdistance;
 
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.Distance;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.text.Format;
@@ -16,12 +17,15 @@ import org.apache.commons.logging.LogFactory;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.services.kinesis.AmazonKinesisClient;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.InvalidStateException;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.ShutdownException;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.ThrottlingException;
 import com.amazonaws.services.kinesis.clientlibrary.interfaces.IRecordProcessor;
 import com.amazonaws.services.kinesis.clientlibrary.interfaces.IRecordProcessorCheckpointer;
 import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownReason;
+import com.amazonaws.services.kinesis.model.PutRecordRequest;
 import com.amazonaws.services.kinesis.model.Record;
 import com.firebase.client.AuthData;
 import com.firebase.client.DataSnapshot;
@@ -48,6 +52,7 @@ public class RecordProcessor implements IRecordProcessor {
   // Checkpoint about once a minute
   private static final long CHECKPOINT_INTERVAL_MILLIS = 60 * 000L;
   private long nextCheckpointTimeInMillis;
+  private AmazonKinesisClient amazonKinesisClient = new AmazonKinesisClient(new DefaultAWSCredentialsProviderChain());
 
   private final CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
 
@@ -164,7 +169,7 @@ public class RecordProcessor implements IRecordProcessor {
               Distance d = new Distance(prevTravel, prevLat, prevLong, prevTs);
               //cache prev value
               distancesCache.put(locationSourceID, d);
-              calculateNewDistance(d, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
+              calculateNewDistance(d, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
             }
           }
           @Override
@@ -173,12 +178,13 @@ public class RecordProcessor implements IRecordProcessor {
           }
         });
       } else
-        calculateNewDistance(distance, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
-    }
+        calculateNewDistance(distance, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
+    
+    }//end of for loop
     return true;
   }
   
-  private void calculateNewDistance(Distance distance, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
+  private void calculateNewDistance(Distance distance, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
     // 3. With new location, calculate new distance
     double travel = calcDistance(distance.getPrevLat(),
         distance.getPrevLong(), locationLat, locationLong, 'K');
@@ -199,7 +205,19 @@ public class RecordProcessor implements IRecordProcessor {
     firebaseUpdate.put("longitude", locationLong);
     firebaseUpdate.put("timestamp", locationTimestamp);
     distanceRef.setValue(firebaseUpdate);
-    // 5. TODO: Send back to kinesis?
+    // 5. Send back to kinesis for aggregation
+    JSONObject distanceJson = new JSONObject();
+    distanceJson.put("account_id", locationAccountID);
+    distanceJson.put("source_id", locationSourceID);
+    distanceJson.put("distance", newTravel);
+    distanceJson.put("timestamp", locationTimestamp);
+    String distanceEvent = distanceJson.toString();
+    LOG.info("DISTANCE EVENT TO KINESIS: " + distanceEvent);
+    PutRecordRequest putRecordRequest = new PutRecordRequest();
+    putRecordRequest.setStreamName("stick-distances");
+    putRecordRequest.setData(ByteBuffer.wrap( distanceEvent.getBytes() ));
+    putRecordRequest.setPartitionKey(locationAccountID);  
+    amazonKinesisClient.putRecord( putRecordRequest );
   }
 
   @Override
