@@ -23,6 +23,7 @@ import com.amazonaws.services.kinesis.clientlibrary.interfaces.IRecordProcessor;
 import com.amazonaws.services.kinesis.clientlibrary.interfaces.IRecordProcessorCheckpointer;
 import com.amazonaws.services.kinesis.clientlibrary.types.ShutdownReason;
 import com.amazonaws.services.kinesis.model.Record;
+import com.firebase.client.AuthData;
 import com.firebase.client.DataSnapshot;
 import com.firebase.client.Firebase;
 import com.firebase.client.FirebaseError;
@@ -38,7 +39,7 @@ public class RecordProcessor implements IRecordProcessor {
 
   private String shardId;
   private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
-  private Map<String, Distance> distances = new HashMap<String, Distance>();
+  private Map<String, Distance> distancesCache = new HashMap<String, Distance>();
 
   // Backoff and retry settings
   private static final long BACKOFF_TIME_IN_MILLIS = 3000L;
@@ -59,6 +60,20 @@ public class RecordProcessor implements IRecordProcessor {
     LOG.info("Staring record processor for shard id: " + shardId);
     nextCheckpointTimeInMillis = System.currentTimeMillis()
         + CHECKPOINT_INTERVAL_MILLIS;
+
+    // Create a handler to handle the result of firebase authentication
+    Firebase.AuthResultHandler authResultHandler = new Firebase.AuthResultHandler() {
+      @Override
+      public void onAuthenticated(AuthData authData) {
+        LOG.info("Authenticated with Firebase");
+      }
+      @Override
+      public void onAuthenticationError(FirebaseError firebaseError) {
+        LOG.error("Firebase authentication failed: " + firebaseError);
+      }
+    };
+    // Authenticate users with a custom Firebase token
+    firebaseRef.authWithCustomToken(System.getenv("FIREBASE_SECRET"), authResultHandler);
   }
 
   @Override
@@ -113,7 +128,7 @@ public class RecordProcessor implements IRecordProcessor {
     JSONArray locations = new JSONArray(eventData);
 
     for (int i = 0, size = locations.length(); i < size; i++) {
-      
+
       JSONObject location = locations.getJSONObject(i);
       String locationSourceID = location.getString("source_id");
       String locationAccountID = location.getString("account_id");
@@ -121,55 +136,70 @@ public class RecordProcessor implements IRecordProcessor {
       Double locationLong = location.getDouble("long");
       Long locationTimestamp = location.getLong("time");
       Double locationSpeed = location.getDouble("speed");
+      String day = getDay(locationTimestamp);
 
-      Date date = new Date(locationTimestamp);
-      Format format = new SimpleDateFormat("yyyyMMdd");
-      String day = format.format(date);
-      
-      Firebase distanceRef = firebaseRef.child("/accounts/"
-          + locationAccountID + "/activity/devices/" + locationSourceID
-          + "/daily/" + day + "/distance/");
+      Firebase distanceRef = firebaseRef.child("/accounts/" + locationAccountID
+          + "/activity/devices/" + locationSourceID + "/daily/" + day);
 
-      // 2. Check if prev distance available for that day, if not load from firebase
-      Distance distance = distances.get(locationSourceID);
-      if (distance == null) {
+      // 2. Check if prev distance available for that day, if not load from
+      // firebase
+      Distance distance = distancesCache.get(locationSourceID);
+      if ( (distance == null) || (!getDay(distance.getPrevTimestamp()).equals(day)) ) {
+        LOG.info("Distance not cached for: " + locationSourceID + "|" + day);
         distanceRef.addListenerForSingleValueEvent(new ValueEventListener() {
           @Override
           public void onDataChange(DataSnapshot snapshot) {
-            Double d = (Double) snapshot.getValue();
-            if (d == null)
-              distances.put(locationSourceID, new Distance(0, locationLat,
+            Map<String, Object> dailyActivity = (Map<String, Object>) snapshot.getValue();
+            if (dailyActivity == null) {
+              LOG.info("Distance not updated in firebase: " + locationSourceID);
+              distancesCache.put(locationSourceID, new Distance(0, locationLat,
                   locationLong, locationTimestamp));
-            else
-              distances.put(locationSourceID, new Distance(d, locationLat,
-                  locationLong, locationTimestamp));
+            } else {
+              Double prevTravel = (Double)dailyActivity.get("distance");
+              Double prevLat = (Double)dailyActivity.get("latitude");
+              Double prevLong = (Double)dailyActivity.get("longitude");
+              Long prevTs = (Long)dailyActivity.get("timestamp");
+              LOG.info("Distance present in firebase: " + locationSourceID
+                  + "|" + prevTravel);
+              Distance d = new Distance(prevTravel, prevLat, prevLong, prevTs);
+              //cache prev value
+              distancesCache.put(locationSourceID, d);
+              calculateNewDistance(d, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
+            }
           }
-
           @Override
           public void onCancelled(FirebaseError firebaseError) {
             LOG.error("Unable to connect to firebase: " + firebaseError);
           }
         });
-      } else {
-        // Distance is in cache, check if date matches, if not roll over.
-        if ( (getDay(distance.getPrevTimestamp())).equals(day) ) {
-          // 3. With new location, calculate new distance
-          double travel = calcDistance(distance.getPrevLat(), distance.getPrevLong(), locationLat, locationLong, 'K');
-          //Ignore if this travel is abnormal (very less or very high)
-          if ((travel < 0.001) || (travel > 1))
-            travel = 0;
-          double newDistance = travel + distance.getDistance();
-          distance.setDistance(newDistance);
-          distance.setPrevLat(locationLat);
-          distance.setPrevLong(locationLong);
-          // 4. Update the new distance to firebase
-          distanceRef.setValue(newDistance);
-          // 5. TODO: Send back to kinesis?
-        } else
-          distances.put(locationSourceID, new Distance(0, locationLat, locationLong, locationTimestamp));
-      }
+      } else
+        calculateNewDistance(distance, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
     }
     return true;
+  }
+  
+  private void calculateNewDistance(Distance distance, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
+    // 3. With new location, calculate new distance
+    double travel = calcDistance(distance.getPrevLat(),
+        distance.getPrevLong(), locationLat, locationLong, 'K');
+    LOG.info("Tavel: " + locationSourceID + "|" + travel);
+    // Ignore if this travel is abnormal (very less or very high)
+    if ((travel < 0.001) || (travel > 1))
+      travel = 0;
+    double newTravel = travel + distance.getDistance();
+    LOG.info("New Distance: " + locationSourceID + "|" + newTravel);
+    distance.setDistance(newTravel);
+    distance.setPrevLat(locationLat);
+    distance.setPrevLong(locationLong);
+    distance.setPrevTimestamp(locationTimestamp);
+    // 4. Update the new distance to firebase
+    Map<String, Object> firebaseUpdate = new HashMap<String, Object>();
+    firebaseUpdate.put("distance", newTravel);
+    firebaseUpdate.put("latitude", locationLat);
+    firebaseUpdate.put("longitude", locationLong);
+    firebaseUpdate.put("timestamp", locationTimestamp);
+    distanceRef.setValue(firebaseUpdate);
+    // 5. TODO: Send back to kinesis?
   }
 
   @Override
@@ -221,7 +251,9 @@ public class RecordProcessor implements IRecordProcessor {
     }
   }
 
-  private double calcDistance(double lat1, double lon1, double lat2, double lon2, char unit) {
+  // Utilities
+  private double calcDistance(double lat1, double lon1, double lat2,
+      double lon2, char unit) {
     double theta = lon1 - lon2;
     double dist = Math.sin(deg2rad(lat1)) * Math.sin(deg2rad(lat2))
         + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2))
@@ -244,7 +276,7 @@ public class RecordProcessor implements IRecordProcessor {
   private double rad2deg(double rad) {
     return (rad * 180.0 / Math.PI);
   }
-  
+
   private String getDay(long timestamp) {
     Format format = new SimpleDateFormat("yyyyMMdd");
     String day = format.format(new Date(timestamp));

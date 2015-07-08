@@ -1,6 +1,6 @@
 To run:
 
-Set environment variables to connect to AWS/Kinesis: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+Set environment variables to connect to AWS/Kinesis, Firebase: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, FIREBASE_SECRET
 
 mvn package
 
