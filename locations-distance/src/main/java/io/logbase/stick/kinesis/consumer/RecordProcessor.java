@@ -61,7 +61,7 @@ public class RecordProcessor implements IRecordProcessor {
     }
   }
 
-  private void processRecordsWithRetries(List<Record> records) throws Exception {
+  private void processRecordsWithRetries(List<Record> records) throws Exception{
     for (Record record : records) {
       //String eventData = decoder.decode(record.getData()).toString();
       boolean processedSuccessfully = false;
@@ -78,15 +78,19 @@ public class RecordProcessor implements IRecordProcessor {
         }
       }
       if (!processedSuccessfully) {
-        LOG.error("Couldn't process record " + record
-            + ". Skipping the record.");
+        LOG.error("Couldn't process record " + record + ". Skipping the record.");
       }
     }
   }
 
-  private boolean businessLogic(Record record) {
+  /*
+   * MAIN BUSINESS LOGIC FOR THIS CONSUMER
+   */
+  private boolean businessLogic(Record record) throws Exception {
     // TODO
-    return false;
+    String eventData = decoder.decode(record.getData()).toString();
+    LOG.info("EVENT DATA RECEIVED AS: " + eventData);
+    return true;
   }
 
   @Override

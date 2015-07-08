@@ -18,7 +18,7 @@ public class LocationsToDistanceConsumer {
 
   private static final Log LOG = LogFactory.getLog(LocationsToDistanceConsumer.class);
   public static final String STREAM_NAME = "stick-locations";
-  private static final String CONSUMER_NAME = "LocationsToFirebaseConsumer";
+  private static final String CONSUMER_NAME = "LocationsToDistanceConsumer";
   // Initial position in the stream when the application starts up for the first
   // time.
   // Position can be one of LATEST (most recent data) or TRIM_HORIZON (oldest
@@ -49,7 +49,6 @@ public class LocationsToDistanceConsumer {
     IRecordProcessorFactory recordProcessorFactory = new RecordProcessorFactory();
     Worker worker = new Worker(recordProcessorFactory,
         kinesisClientLibConfiguration);
-
     LOG.info("Running consumer: " + CONSUMER_NAME + "|" + STREAM_NAME + "|"
         + workerId);
     int exitCode = 0;
