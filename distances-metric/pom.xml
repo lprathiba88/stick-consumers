@@ -62,7 +62,7 @@
 					</descriptorRefs>
 					<archive>
 						<manifest>
-							<mainClass>io.logbase.stick.kinesis.consumer.distancemetrics.DistancesToMetricConsumer</mainClass>
+							<mainClass>io.logbase.stick.kinesis.consumer.distancesmetric.DistancesToMetricConsumer</mainClass>
 						</manifest>
 					</archive>
 				</configuration>
