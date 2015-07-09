@@ -89,23 +89,27 @@ public class RecordProcessor implements IRecordProcessor {
   public void processRecords(List<Record> records,
       IRecordProcessorCheckpointer checkpointer) {
     LOG.info("Processing " + records.size() + " records from " + shardId);
-    try {
-      processRecordsWithRetries(records);
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
-    // Checkpoint every one minute
-    if (System.currentTimeMillis() > nextCheckpointTimeInMillis) {
-      checkpoint(checkpointer);
-      nextCheckpointTimeInMillis = System.currentTimeMillis()
-          + CHECKPOINT_INTERVAL_MILLIS;
-    }
+    
     // Upload to S3 every one hour
     if (System.currentTimeMillis() > nextS3UploadTimeInMillis) {
       persistToS3();
       nextS3UploadTimeInMillis = System.currentTimeMillis()
           + S3_UPLOAD_TIME_INTERVAL_MILLIS;
     }
+    
+    try {
+      processRecordsWithRetries(records);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+    
+    // Checkpoint every one minute
+    if (System.currentTimeMillis() > nextCheckpointTimeInMillis) {
+      checkpoint(checkpointer);
+      nextCheckpointTimeInMillis = System.currentTimeMillis()
+          + CHECKPOINT_INTERVAL_MILLIS;
+    }
+    
   }
 
   private void processRecordsWithRetries(List<Record> records) throws Exception {
@@ -216,8 +220,9 @@ public class RecordProcessor implements IRecordProcessor {
   
   private String getS3FileName(String localFileName) {
     String s3FileName;
-    s3FileName = localFileName.replace("@", new SimpleDateFormat("yyyy/MM/dd/HH").format(new Date()));
+    s3FileName = localFileName.replace("@", new SimpleDateFormat("yyyy/MM/dd").format(new Date()));
     s3FileName = s3FileName.replace("-", "/");
+    s3FileName = s3FileName + new SimpleDateFormat("_yyyy-MM-dd'T'HH:mm:ss").format(new Date());
     LOG.info("S3 file name - " + s3FileName);
     return s3FileName;
   }
