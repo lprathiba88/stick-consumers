@@ -207,10 +207,11 @@ public class RecordProcessor implements IRecordProcessor {
       firebaseUpdate.put("timestamp", locationTimestamp);
       distanceRef.setValue(firebaseUpdate);
       // 5. Send back to kinesis for aggregation
+      //Send just the incremental travel
       JSONObject distanceJson = new JSONObject();
       distanceJson.put("account_id", locationAccountID);
       distanceJson.put("source_id", locationSourceID);
-      distanceJson.put("distance", newTravel);
+      distanceJson.put("distance", travel);
       distanceJson.put("timestamp", locationTimestamp);
       String distanceEvent = distanceJson.toString();
       LOG.info("DISTANCE EVENT TO KINESIS: " + distanceEvent);

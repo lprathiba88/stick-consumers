@@ -1,6 +1,5 @@
 package io.logbase.stick.kinesis.consumer.distancesmetric;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.text.Format;
@@ -12,7 +11,6 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
@@ -40,7 +38,7 @@ public class RecordProcessor implements IRecordProcessor {
 
   private String shardId;
   private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
-  private Map<String, Map<String, Double>> distancesCache = new HashMap<String, Map<String, Double>>();
+  private Map<String, Double> distancesCache = new HashMap<String, Double>();
 
   // Backoff and retry settings
   private static final long BACKOFF_TIME_IN_MILLIS = 3000L;
@@ -125,61 +123,58 @@ public class RecordProcessor implements IRecordProcessor {
 
     String eventData = decoder.decode(record.getData()).toString();
     LOG.info("EVENT DATA RECEIVED AS: " + eventData);
-
-    // 1. Deserialize the event data
-    /*
-    JSONArray locations = new JSONArray(eventData);
-
-    for (int i = 0, size = locations.length(); i < size; i++) {
-      JSONObject location = locations.getJSONObject(i);
-      String locationSourceID = location.getString("source_id");
-      String locationAccountID = location.getString("account_id");
-      Double locationLat = location.getDouble("lat");
-      Double locationLong = location.getDouble("long");
-      Long locationTimestamp = location.getLong("time");
-      Double locationSpeed = location.getDouble("speed");
-      String day = getDay(locationTimestamp);
-
-      Firebase distanceRef = firebaseRef.child("/accounts/" + locationAccountID
-          + "/activity/devices/" + locationSourceID + "/daily/" + day);
-
-      // 2. Check if prev distance available for that day, if not load from
-      // firebase
-      Distance distance = distancesCache.get(locationSourceID);
-      if ( (distance == null) || (!getDay(distance.getPrevTimestamp()).equals(day)) ) {
-        LOG.info("Distance not cached for: " + locationSourceID + "|" + day);
-        distanceRef.addListenerForSingleValueEvent(new ValueEventListener() {
-          @Override
-          public void onDataChange(DataSnapshot snapshot) {
-            Map<String, Object> dailyActivity = (Map<String, Object>) snapshot.getValue();
-            if (dailyActivity == null) {
-              LOG.info("Distance not updated in firebase: " + locationSourceID);
-              distancesCache.put(locationSourceID, new Distance(0, locationLat,
-                  locationLong, locationTimestamp));
-            } else {
-              Double prevTravel = (Double)dailyActivity.get("distance");
-              Double prevLat = (Double)dailyActivity.get("latitude");
-              Double prevLong = (Double)dailyActivity.get("longitude");
-              Long prevTs = (Long)dailyActivity.get("timestamp");
-              LOG.info("Distance present in firebase: " + locationSourceID
-                  + "|" + prevTravel);
-              Distance d = new Distance(prevTravel, prevLat, prevLong, prevTs);
-              //cache prev value
-              distancesCache.put(locationSourceID, d);
-              calculateNewDistance(d, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
-            }
-          }
-          @Override
-          public void onCancelled(FirebaseError firebaseError) {
-            LOG.error("Unable to connect to firebase: " + firebaseError);
-          }
-        });
-      } else
-        calculateNewDistance(distance, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
     
-    }//end of for loop
-    */
+    //1. Deserialize event
+    JSONObject distanceEvent = new JSONObject(eventData);
+    String accountID = distanceEvent.getString("account_id");
+    String sourceID = distanceEvent.getString("source_id");
+    Double increment = distanceEvent.getDouble("distance");
+    Long timestamp = distanceEvent.getLong("timestamp");
+    String day = getDay(timestamp);
+    
+    Firebase distanceRef = firebaseRef.child("/accounts/" + accountID
+        + "/activity/daily/" + day);
+    
+    //2. Get previous event in cache
+    Double prevDistance = distancesCache.get(accountID);
+    if(prevDistance == null) {
+      LOG.info("Distance not cached for: " + accountID + "|" + day);
+      distanceRef.addListenerForSingleValueEvent(new ValueEventListener() {
+        @Override
+        public void onDataChange(DataSnapshot snapshot) {
+          Map<String, Object> dailyActivity = (Map<String, Object>) snapshot.getValue();
+          if (dailyActivity == null) {
+            LOG.info("Distance not updated in firebase: " + accountID);            
+            incrementDistance(accountID, 0D, increment, timestamp, distanceRef);
+          } else {
+            Double prevDistanceInFB = (Double)dailyActivity.get("distance");
+            Long prevTs = (Long)dailyActivity.get("timestamp");
+            LOG.info("Distance present in firebase: " + accountID
+                + "|" + sourceID + "|" + prevDistanceInFB + "|" + prevTs);
+            incrementDistance(accountID, prevDistanceInFB, increment, timestamp, distanceRef);
+          }
+        }
+        @Override
+        public void onCancelled(FirebaseError firebaseError) {
+          LOG.error("Unable to connect to firebase: " + firebaseError);
+        }
+      });
+    } else
+      incrementDistance(accountID, prevDistance, increment, timestamp, distanceRef);
+    
     return true;
+  }
+  
+  //3. Increment the distance and update to Firebase
+  private void incrementDistance(String accountID, Double prevDistance, Double increment, Long timestamp, Firebase distanceRef) {
+    //Update distancesCache with incremented value
+    Double newDistance = prevDistance + increment;
+    distancesCache.put(accountID, newDistance);
+    //Update new distance in Firebase
+    Map<String, Object> firebaseUpdate = new HashMap<String, Object>();
+    firebaseUpdate.put("distance", newDistance);
+    firebaseUpdate.put("timestamp", timestamp);
+    distanceRef.setValue(firebaseUpdate);
   }
 
   @Override
