@@ -191,7 +191,7 @@ public class RecordProcessor implements IRecordProcessor {
           distance.getPrevLong(), locationLat, locationLong, 'K');
       LOG.info("Tavel: " + locationSourceID + "|" + travel);
       // Ignore if this travel is abnormal (very less or very high)
-      if ((travel < 0.002) || (travel > 0.5))
+      if ((travel < 0.004) || (travel > 0.5))
         travel = 0;
       double newTravel = travel + distance.getDistance();
       LOG.info("New Distance: " + locationSourceID + "|" + newTravel);
