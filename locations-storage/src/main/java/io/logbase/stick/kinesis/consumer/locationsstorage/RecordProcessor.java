@@ -1,4 +1,4 @@
-package io.logbase.stick.kinesis.consumer.locationsdistance;
+package io.logbase.stick.kinesis.consumer.locationsstorage;
 
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.Distance;
 
