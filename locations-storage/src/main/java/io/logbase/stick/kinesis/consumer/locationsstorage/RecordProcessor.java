@@ -6,11 +6,18 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.services.kinesis.AmazonKinesisClient;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
+import com.amazonaws.services.dynamodbv2.document.DynamoDB;
+import com.amazonaws.services.dynamodbv2.document.Item;
+import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.InvalidStateException;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.ShutdownException;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.ThrottlingException;
@@ -37,9 +44,11 @@ public class RecordProcessor implements IRecordProcessor {
   // Checkpoint about once a minute
   private static final long CHECKPOINT_INTERVAL_MILLIS = 60 * 000L;
   private long nextCheckpointTimeInMillis;
-  private AmazonKinesisClient amazonKinesisClient = new AmazonKinesisClient(new DefaultAWSCredentialsProviderChain());
 
   private final CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
+  
+  private DynamoDB dynamoDB = new DynamoDB(new AmazonDynamoDBClient(new DefaultAWSCredentialsProviderChain()));
+  private Table table = dynamoDB.getTable("StickLocations");
 
   @Override
   public void initialize(String shardId) {
@@ -103,14 +112,19 @@ public class RecordProcessor implements IRecordProcessor {
     for (int i = 0, size = locations.length(); i < size; i++) {
 
       JSONObject location = locations.getJSONObject(i);
-      String locationSourceID = location.getString("source_id");
-      String locationAccountID = location.getString("account_id");
-      Double locationLat = location.getDouble("lat");
-      Double locationLong = location.getDouble("long");
-      Long locationTimestamp = location.getLong("time");
-      Double locationSpeed = location.getDouble("speed");
+      //2. Write to DynamoDB
       
-      //TODO Write to storage
+      // Build the item
+      Item item = new Item()
+      .withPrimaryKey("device_id", location.getString("source_id"), "timestamp", epochToString(location.getLong("time")))
+          .withDouble("latitude", location.getDouble("lat"))
+          .withDouble("longitude", location.getDouble("long"))
+          .withDouble("speed", location.getDouble("speed"))
+          .withDouble("accuracy", location.getDouble("accuracy"));
+      // Write the item to the table 
+      table.putItem(item);
+      
+      LOG.info("Wrote to DDB: " + location.toString());
     
     }//end of for loop
     return true;
@@ -163,6 +177,13 @@ public class RecordProcessor implements IRecordProcessor {
         LOG.debug("Interrupted sleep", e);
       }
     }
+  }
+  
+  public static String epochToString(Long epochInMillis) {
+    String tString = null;
+    DateTimeFormatter formatter = DateTimeFormat.forPattern("yyyyMMddHHmmssSSS");
+    tString = formatter.print(new DateTime(epochInMillis, DateTimeZone.UTC));
+    return tString;
   }
 
 }
