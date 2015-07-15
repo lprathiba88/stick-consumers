@@ -1,6 +1,7 @@
 package io.logbase.stick.kinesis.consumer.locationsdistance;
 
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.Distance;
+import io.logbase.stick.kinesis.consumer.locationsdistance.models.SpeedoOdo;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -11,9 +12,12 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.commons.math3.util.Precision;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -44,7 +48,11 @@ public class RecordProcessor implements IRecordProcessor {
   private String shardId;
   private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
   private Map<String, Distance> distancesCache = new HashMap<String, Distance>();
-
+  private Map<String, SortedMap<Long, SpeedoOdo>> speedsCache = new HashMap<String, SortedMap<Long, SpeedoOdo>>();
+  private static final long TRIP_CHECK_WINDOW_MILLIS = 60000L;
+  private static final float NOT_MOVING_AVG_SPEED = 1.6f;
+  private static final float SPEED_NOISE_CUTOFF = 55.55f;
+  
   // Backoff and retry settings
   private static final long BACKOFF_TIME_IN_MILLIS = 3000L;
   private static final int NUM_RETRIES = 5;
@@ -78,6 +86,7 @@ public class RecordProcessor implements IRecordProcessor {
     };
     // Authenticate users with a custom Firebase token
     firebaseRef.authWithCustomToken(System.getenv("FIREBASE_SECRET"), authResultHandler);
+    
   }
 
   @Override
@@ -136,10 +145,10 @@ public class RecordProcessor implements IRecordProcessor {
       JSONObject location = locations.getJSONObject(i);
       String locationSourceID = location.getString("source_id");
       String locationAccountID = location.getString("account_id");
-      Double locationLat = location.getDouble("lat");
-      Double locationLong = location.getDouble("long");
-      Long locationTimestamp = location.getLong("time");
-      Double locationSpeed = location.getDouble("speed");
+      double locationLat = location.getDouble("lat");
+      double locationLong = location.getDouble("long");
+      long locationTimestamp = location.getLong("time");
+      double locationSpeed = location.getDouble("speed");
       String day = getDay(locationTimestamp);
 
       Firebase distanceRef = firebaseRef.child("/accounts/" + locationAccountID
@@ -156,19 +165,25 @@ public class RecordProcessor implements IRecordProcessor {
             Map<String, Object> dailyActivity = (Map<String, Object>) snapshot.getValue();
             if (dailyActivity == null) {
               LOG.info("Distance not updated in firebase: " + locationSourceID);
+              fetchTripStatus(locationAccountID, locationSourceID, 0, locationLat, locationLong, locationTimestamp, false, locationLat, locationLong, locationTimestamp, distanceRef, locationSpeed);
+              /*
               distancesCache.put(locationSourceID, new Distance(0, locationLat,
-                  locationLong, locationTimestamp));
+                  locationLong, locationTimestamp, false, null));
+               */
             } else {
-              Double prevTravel = (Double)dailyActivity.get("distance");
-              Double prevLat = (Double)dailyActivity.get("latitude");
-              Double prevLong = (Double)dailyActivity.get("longitude");
-              Long prevTs = (Long)dailyActivity.get("timestamp");
+              double prevTravel = (Double)dailyActivity.get("distance");
+              double prevLat = (Double)dailyActivity.get("latitude");
+              double prevLong = (Double)dailyActivity.get("longitude");
+              long prevTs = (Long)dailyActivity.get("timestamp");
               LOG.info("Distance present in firebase: " + locationSourceID
                   + "|" + prevTravel);
-              Distance d = new Distance(prevTravel, prevLat, prevLong, prevTs);
+              fetchTripStatus(locationAccountID, locationSourceID, prevTravel, prevLat, prevLong, prevTs, true, locationLat, locationLong, locationTimestamp, distanceRef, locationSpeed);
+              /*
+              Distance d = new Distance(prevTravel, prevLat, prevLong, prevTs, false, null);
               //cache prev value
               distancesCache.put(locationSourceID, d);
               calculateNewDistance(d, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
+              */
             }
           }
           @Override
@@ -176,11 +191,134 @@ public class RecordProcessor implements IRecordProcessor {
             LOG.error("Unable to connect to firebase: " + firebaseError);
           }
         });
-      } else
+      } else {
         calculateNewDistance(distance, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
-    
+        if(distance.getRunning())
+          checkIfTripEnded(distance, locationAccountID, locationSourceID, locationSpeed, locationTimestamp);
+        else
+          checkIfTripStarted(distance, locationAccountID, locationSourceID, locationSpeed, locationTimestamp);
+      }
     }//end of for loop
     return true;
+  }
+  
+  private void fetchTripStatus(String accountID, String sourceID, double travel, double lat, double lon, long timestamp, boolean calcDistance, double newLat, double newLong, long newTs, Firebase distanceRef, double newSpeed) {
+    Firebase statusRef = firebaseRef.child("/accounts/" + accountID
+        + "/livecars/" + sourceID);
+    statusRef.addListenerForSingleValueEvent(new ValueEventListener() {
+      @Override
+      public void onDataChange(DataSnapshot snapshot) {
+        Map<String, Object> live = (Map<String, Object>) snapshot.getValue();
+        Distance d = null;
+        if ((live == null) || (live.get("running") == null) ) {
+          LOG.info("Running status not updated in firebase: " + sourceID);
+          d = new Distance(0, lat, lon, timestamp, false, null);
+        } else {
+          boolean running = (Boolean)live.get("running");
+          String currentTripID = (String)live.get("currenttripid");
+          LOG.info("Running status present in firebase: " + sourceID
+              + "|" + running +  "|" + currentTripID);
+          d = new Distance(travel, lat, lon, timestamp, running, currentTripID);
+        }
+        distancesCache.put(sourceID, d);  
+        if(calcDistance) {
+          calculateNewDistance(d, accountID, sourceID, newLat, newLong, newTs, distanceRef);
+        }
+        if(d.getRunning())
+          checkIfTripEnded(d, accountID, sourceID, newSpeed, newTs);
+        else
+          checkIfTripStarted(d, accountID, sourceID, newSpeed, newTs);
+      }
+      @Override
+      public void onCancelled(FirebaseError firebaseError) {
+        LOG.error("Unable to connect to firebase: " + firebaseError);
+      }
+    });
+  }
+  
+  private void checkIfTripStarted(Distance distance, String accountID, String sourceID, double speed, long timestamp) {
+    //TODO
+    //Insert new speed into the time sliced map
+    //Check avg speed, if above critical speed then trip started
+    //If trip started, update cache, firebase status and trip entry
+    if(distance.getPrevTimestamp() <= timestamp) {    //To ensure event order
+      if(speed < SPEED_NOISE_CUTOFF) {                //To ensure quality
+        
+        SortedMap<Long, SpeedoOdo> speeds = speedsCache.get(sourceID);
+        
+        if(speeds == null){
+          speeds = new TreeMap<Long, SpeedoOdo>();
+          speeds.put(timestamp, new SpeedoOdo(speed, distance.getDistance(), distance.getPrevLat(), distance.getPrevLong()));
+          speedsCache.put(sourceID, speeds);
+        } else {
+          //Check if speeds needs trimming
+          long currentWindowStart = timestamp - TRIP_CHECK_WINDOW_MILLIS;
+          if (speeds.size() > 0) {
+            long firstKey = speeds.firstKey();
+            if(firstKey < currentWindowStart){
+                //Get a tail map
+                SortedMap newSpeeds = speeds.tailMap(currentWindowStart);
+                speeds = newSpeeds;
+                LOG.info("Trimmed speeds");;
+            }
+          }
+          //Insert into speeds Map
+          speeds.put(timestamp, new SpeedoOdo(speed, distance.getDistance(), distance.getPrevLat(), distance.getPrevLong()));
+        }
+        
+        //Now check avg speed
+        //If we have sufficient data
+        LOG.info("SPEED WINDOW: " + speeds.firstKey() + "|" + speeds.lastKey() + " Diff: " + (speeds.lastKey() - speeds.firstKey()));
+        if((speeds.lastKey() - speeds.firstKey()) > (TRIP_CHECK_WINDOW_MILLIS/2) ) {
+          double sumSpeed = 0;
+          double avgSpeed = 0;
+          for (long time : speeds.keySet())
+            sumSpeed = sumSpeed + speeds.get(time).getSpeed();
+          avgSpeed = sumSpeed / speeds.size();
+          LOG.info("AVG SPEED: " + avgSpeed);
+          if (avgSpeed > NOT_MOVING_AVG_SPEED) {
+            //Started!
+            
+            //update cache
+            String tripName = sourceID + "-" + getDateTime(speeds.firstKey());
+            distance.setRunning(true);
+            distance.setCurrentTripID(tripName);
+
+            //Status update on firebase
+            Firebase statusRef = firebaseRef.child("/accounts/" + accountID
+                + "/livecars/" + sourceID);
+            Map<String, Object> firebaseStatusUpdate = new HashMap<String, Object>();
+            firebaseStatusUpdate.put("running", true);
+            firebaseStatusUpdate.put("currenttripid", tripName);
+            statusRef.updateChildren(firebaseStatusUpdate);
+            //statusRef.setValue(firebaseStatusUpdate);
+            LOG.info("Updated live car status as running: " + tripName);
+            
+            //Trip update on firebase
+            long tripStartTime = speeds.firstKey();
+            SpeedoOdo tripStartData = speeds.get(tripStartTime);
+            Firebase tripRef = firebaseRef.child("/accounts/" + accountID
+                + "/trips/devices/" + sourceID + "/daily/" + getDay(tripStartTime) + "/" + tripName);
+            Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
+            firebaseTripUpdate.put("starttime", tripStartTime);
+            firebaseTripUpdate.put("startlatitude", tripStartData.getLat());
+            firebaseTripUpdate.put("startlongitude", tripStartData.getLon());
+            firebaseTripUpdate.put("startodo", tripStartData.getDistance());
+            tripRef.setValue(firebaseTripUpdate);
+            LOG.info("Updated trip started data on firebase: " + tripName);            
+            
+          } else
+            LOG.info("MOVEMENT NOT DETECTED: " + sourceID);
+        } else
+          LOG.info("NOT SUFFICIENT DATA TO CHECK TRIP START: " + sourceID);  
+        
+      }
+    }
+    
+  }
+  
+  private void checkIfTripEnded(Distance distance, String accountID, String sourceID, double speed, long timestamp) {
+    //TODO
   }
   
   private void calculateNewDistance(Distance distance, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
@@ -287,7 +425,8 @@ public class RecordProcessor implements IRecordProcessor {
     } else if (unit == 'N') {
       dist = dist * 0.8684;
     }
-    return (dist);
+    double roundedDist = Precision.round(dist, 3);
+    return (roundedDist);
   }
 
   private double deg2rad(double deg) {
@@ -302,6 +441,12 @@ public class RecordProcessor implements IRecordProcessor {
     Format format = new SimpleDateFormat("yyyyMMdd");
     String day = format.format(new Date(timestamp));
     return day;
+  }
+  
+  private String getDateTime(long timestamp) {
+    Format format = new SimpleDateFormat("yyyyMMdd-HHmmss-SSS");
+    String datetime = format.format(new Date(timestamp));
+    return datetime;
   }
 
 }

@@ -6,12 +6,16 @@ public class Distance {
   private double prevLat;
   private double prevLong;
   private long prevTimestamp;
+  private boolean running;
+  private String currentTripID;
   
-  public Distance(double distance, double prevLat, double prevLong, long prevTimestamp) {
+  public Distance(double distance, double prevLat, double prevLong, long prevTimestamp, boolean running, String currentTripID) {
     this.distance = distance;
     this.prevLat = prevLat;
     this.prevLong = prevLong;
     this.prevTimestamp = prevTimestamp;
+    this.running = running;
+    this.currentTripID = currentTripID;
   }
   
   public double getDistance() {
@@ -37,6 +41,18 @@ public class Distance {
   }
   public void setPrevTimestamp(long prevTimestamp) {
     this.prevTimestamp = prevTimestamp;
+  }
+  public boolean getRunning() {
+    return running;
+  }
+  public void setRunning(boolean running) {
+    this.running = running;
+  }
+  public String getCurrentTripID() {
+    return currentTripID;
+  }
+  public void setCurrentTripID(String currentTripID) {
+    this.currentTripID = currentTripID;
   }
   
 }
