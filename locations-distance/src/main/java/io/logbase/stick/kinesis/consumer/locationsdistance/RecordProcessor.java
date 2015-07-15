@@ -318,7 +318,87 @@ public class RecordProcessor implements IRecordProcessor {
   }
   
   private void checkIfTripEnded(Distance distance, String accountID, String sourceID, double speed, long timestamp) {
+
     //TODO
+    //Insert new speed into the time sliced map
+    //Check avg speed, if below critical speed then trip ended
+    //If trip ended, update cache, firebase status and trip entry
+    if(distance.getPrevTimestamp() <= timestamp) {    //To ensure event order
+      if(speed < SPEED_NOISE_CUTOFF) {                //To ensure quality
+        
+        SortedMap<Long, SpeedoOdo> speeds = speedsCache.get(sourceID);
+        
+        if(speeds == null){
+          speeds = new TreeMap<Long, SpeedoOdo>();
+          speeds.put(timestamp, new SpeedoOdo(speed, distance.getDistance(), distance.getPrevLat(), distance.getPrevLong()));
+          speedsCache.put(sourceID, speeds);
+        } else {
+          //Check if speeds needs trimming
+          long currentWindowStart = timestamp - TRIP_CHECK_WINDOW_MILLIS;
+          if (speeds.size() > 0) {
+            long firstKey = speeds.firstKey();
+            if(firstKey < currentWindowStart){
+                //Get a tail map
+                SortedMap newSpeeds = speeds.tailMap(currentWindowStart);
+                speeds = newSpeeds;
+                LOG.info("Trimmed speeds");;
+            }
+          }
+          //Insert into speeds Map
+          speeds.put(timestamp, new SpeedoOdo(speed, distance.getDistance(), distance.getPrevLat(), distance.getPrevLong()));
+        }
+        
+        //Now check avg speed
+        //If we have sufficient data
+        LOG.info("SPEED WINDOW: " + speeds.firstKey() + "|" + speeds.lastKey() + " Diff: " + (speeds.lastKey() - speeds.firstKey()));
+        if((speeds.lastKey() - speeds.firstKey()) > (TRIP_CHECK_WINDOW_MILLIS/2) ) {
+          double sumSpeed = 0;
+          double avgSpeed = 0;
+          for (long time : speeds.keySet())
+            sumSpeed = sumSpeed + speeds.get(time).getSpeed();
+          avgSpeed = sumSpeed / speeds.size();
+          LOG.info("AVG SPEED: " + avgSpeed);
+          if (avgSpeed <= NOT_MOVING_AVG_SPEED) {
+            //Ended!
+            String tripName = distance.getCurrentTripID();
+            LOG.info("TRIP ENDED: " + tripName);
+            
+            //update cache
+            distance.setRunning(false);
+            distance.setCurrentTripID(null);
+
+            //Status update on firebase
+            Firebase statusRef = firebaseRef.child("/accounts/" + accountID
+                + "/livecars/" + sourceID);
+            Map<String, Object> firebaseStatusUpdate = new HashMap<String, Object>();
+            firebaseStatusUpdate.put("running", false);
+            firebaseStatusUpdate.put("currenttripid", null);
+            statusRef.updateChildren(firebaseStatusUpdate);
+            //statusRef.setValue(firebaseStatusUpdate);
+            LOG.info("Updated live car status as stopped: " + tripName);
+            
+            //Trip update on firebase
+            String tripStartDay = tripName.substring(tripName.length() - 19, tripName.length() -11);
+            LOG.info("Trip start day extracted as: " + tripStartDay);
+            long tripEndTime = speeds.firstKey();
+            SpeedoOdo tripEndData = speeds.get(tripEndTime);
+            Firebase tripRef = firebaseRef.child("/accounts/" + accountID
+                + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+            Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
+            firebaseTripUpdate.put("endtime", tripEndTime);
+            firebaseTripUpdate.put("endlatitude", tripEndData.getLat());
+            firebaseTripUpdate.put("endlongitude", tripEndData.getLon());
+            firebaseTripUpdate.put("endodo", tripEndData.getDistance());
+            tripRef.updateChildren(firebaseTripUpdate);
+            LOG.info("Updated trip ended data on firebase: " + tripName);            
+            
+          } else
+            LOG.info("STILL MOVING...: " + sourceID);
+        } else
+          LOG.info("NOT SUFFICIENT DATA TO CHECK TRIP END: " + sourceID);  
+        
+      }
+    }
   }
   
   private void calculateNewDistance(Distance distance, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
