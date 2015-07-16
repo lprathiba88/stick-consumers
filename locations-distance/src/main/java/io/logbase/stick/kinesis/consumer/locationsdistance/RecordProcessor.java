@@ -49,7 +49,7 @@ public class RecordProcessor implements IRecordProcessor {
   private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
   private Map<String, Distance> distancesCache = new HashMap<String, Distance>();
   private Map<String, SortedMap<Long, SpeedoOdo>> speedsCache = new HashMap<String, SortedMap<Long, SpeedoOdo>>();
-  private static final long TRIP_CHECK_WINDOW_MILLIS = 60000L;
+  private static final long TRIP_CHECK_WINDOW_MILLIS = 300000L;
   private static final float NOT_MOVING_AVG_SPEED = 1.6f;
   private static final float SPEED_NOISE_CUTOFF = 55.55f;
   
@@ -478,8 +478,7 @@ public class RecordProcessor implements IRecordProcessor {
         }
       } catch (InvalidStateException e) {
         LOG.error(
-            "Cannot save checkpoint to the DynamoDB table used by the Amazon Kinesis Client Library.",
-            e);
+            "Cannot save checkpoint to the DynamoDB table used by the Amazon Kinesis Client Library.", e);
         break;
       }
       try {
