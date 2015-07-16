@@ -2,12 +2,12 @@ package io.logbase.stick.kinesis.consumer.distancesmetric;
 
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.text.Format;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -227,7 +227,8 @@ public class RecordProcessor implements IRecordProcessor {
   }
 
   private String getDay(long timestamp) {
-    Format format = new SimpleDateFormat("yyyyMMdd");
+    SimpleDateFormat format = new SimpleDateFormat("yyyyMMdd");
+    format.setTimeZone(TimeZone.getTimeZone("UTC"));
     String day = format.format(new Date(timestamp));
     return day;
   }
