@@ -404,7 +404,8 @@ public class RecordProcessor implements IRecordProcessor {
   private void calculateNewDistance(Distance distance, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
     if(distance.getPrevTimestamp() < locationTimestamp) {
       // 3. With new location, calculate new distance
-      double travel = calcDistance(distance.getPrevLat(),
+      double travel = 0;
+      travel = calcDistance(distance.getPrevLat(),
           distance.getPrevLong(), locationLat, locationLong, 'K');
       LOG.info("Tavel: " + locationSourceID + "|" + travel);
       // Ignore if this travel is abnormal (very less or very high)
@@ -504,7 +505,8 @@ public class RecordProcessor implements IRecordProcessor {
     } else if (unit == 'N') {
       dist = dist * 0.8684;
     }
-    double roundedDist = Precision.round(dist, 3);
+    double roundedDist = 0;
+    roundedDist = Precision.round(dist, 3);
     return (roundedDist);
   }
 
