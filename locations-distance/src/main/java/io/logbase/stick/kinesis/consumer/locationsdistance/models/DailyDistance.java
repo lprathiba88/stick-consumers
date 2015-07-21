@@ -1,6 +1,6 @@
 package io.logbase.stick.kinesis.consumer.locationsdistance.models;
 
-public class Distance {
+public class DailyDistance {
   
   private double distance;
   private double prevLat;
@@ -9,7 +9,7 @@ public class Distance {
   private boolean running;
   private String currentTripID;
   
-  public Distance(double distance, double prevLat, double prevLong, long prevTimestamp, boolean running, String currentTripID) {
+  public DailyDistance(double distance, double prevLat, double prevLong, long prevTimestamp, boolean running, String currentTripID) {
     this.distance = distance;
     this.prevLat = prevLat;
     this.prevLong = prevLong;

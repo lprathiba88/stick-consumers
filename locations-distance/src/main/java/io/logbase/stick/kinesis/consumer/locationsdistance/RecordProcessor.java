@@ -1,11 +1,12 @@
 package io.logbase.stick.kinesis.consumer.locationsdistance;
 
-import io.logbase.stick.kinesis.consumer.locationsdistance.models.Distance;
+import io.logbase.stick.kinesis.consumer.locationsdistance.models.DailyDistance;
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.SpeedoOdo;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
@@ -47,10 +48,17 @@ public class RecordProcessor implements IRecordProcessor {
 
   private String shardId;
   private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
-  private Map<String, Distance> distancesCache = new HashMap<String, Distance>();
+  private Map<String, DailyDistance> distancesCache = new HashMap<String, DailyDistance>();
   private Map<String, SortedMap<Long, SpeedoOdo>> speedsCache = new HashMap<String, SortedMap<Long, SpeedoOdo>>();
-  private static final long TRIP_CHECK_WINDOW_MILLIS = 300000L;
+  /*General logic for trip detection:
+   * Movement start is when average speed is above NOT_MOVING_AVG_SPEED for more than START_TRIP_CHECK_WINDOW_MILLIS.
+   * Movement stop is when average speed is below NOT_MOVING_AVG_SPEED for more than END_TRIP_CHECK_WINDOW_MILLIS.
+   * A trip is recorded when there is movement recorded for MIN_TRIP_INTERVAL
+   */
+  private static final long START_TRIP_CHECK_WINDOW_MILLIS = 10000L;
+  private static final long END_TRIP_CHECK_WINDOW_MILLIS = 300000L;
   private static final float NOT_MOVING_AVG_SPEED = 1.6f;
+  private static final long MIN_TRIP_INTERVAL = 60000L;
   private static final float SPEED_NOISE_CUTOFF = 55.55f;
   
   // Backoff and retry settings
@@ -156,8 +164,8 @@ public class RecordProcessor implements IRecordProcessor {
 
       // 2. Check if prev distance available for that day, if not load from
       // firebase
-      Distance distance = distancesCache.get(locationSourceID);
-      if ( (distance == null) || (!getDay(distance.getPrevTimestamp()).equals(day)) ) {
+      DailyDistance dailyDistance = distancesCache.get(locationSourceID);
+      if ( (dailyDistance == null) || (!getDay(dailyDistance.getPrevTimestamp()).equals(day)) ) {
         LOG.info("Distance not cached for: " + locationSourceID + "|" + day);
         distanceRef.addListenerForSingleValueEvent(new ValueEventListener() {
           @Override
@@ -192,11 +200,11 @@ public class RecordProcessor implements IRecordProcessor {
           }
         });
       } else {
-        calculateNewDistance(distance, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
-        if(distance.getRunning())
-          checkIfTripEnded(distance, locationAccountID, locationSourceID, locationSpeed, locationTimestamp);
+        calculateNewDistance(dailyDistance, locationAccountID, locationSourceID, locationLat, locationLong, locationTimestamp, distanceRef);
+        if(dailyDistance.getRunning())
+          checkIfTripEnded(dailyDistance, locationAccountID, locationSourceID, locationSpeed, locationTimestamp);
         else
-          checkIfTripStarted(distance, locationAccountID, locationSourceID, locationSpeed, locationTimestamp);
+          checkIfTripStarted(dailyDistance, locationAccountID, locationSourceID, locationSpeed, locationTimestamp);
       }
     }//end of for loop
     return true;
@@ -209,16 +217,16 @@ public class RecordProcessor implements IRecordProcessor {
       @Override
       public void onDataChange(DataSnapshot snapshot) {
         Map<String, Object> live = (Map<String, Object>) snapshot.getValue();
-        Distance d = null;
+        DailyDistance d = null;
         if ((live == null) || (live.get("running") == null) ) {
           LOG.info("Running status not updated in firebase: " + sourceID);
-          d = new Distance(0, lat, lon, timestamp, false, null);
+          d = new DailyDistance(0, lat, lon, timestamp, false, null);
         } else {
           boolean running = (Boolean)live.get("running");
           String currentTripID = (String)live.get("currenttripid");
           LOG.info("Running status present in firebase: " + sourceID
               + "|" + running +  "|" + currentTripID);
-          d = new Distance(travel, lat, lon, timestamp, running, currentTripID);
+          d = new DailyDistance(travel, lat, lon, timestamp, running, currentTripID);
         }
         distancesCache.put(sourceID, d);  
         if(calcDistance) {
@@ -236,8 +244,7 @@ public class RecordProcessor implements IRecordProcessor {
     });
   }
   
-  private void checkIfTripStarted(Distance distance, String accountID, String sourceID, double speed, long timestamp) {
-    //TODO
+  private void checkIfTripStarted(DailyDistance distance, String accountID, String sourceID, double speed, long timestamp) {
     //Insert new speed into the time sliced map
     //Check avg speed, if above critical speed then trip started
     //If trip started, update cache, firebase status and trip entry
@@ -252,7 +259,7 @@ public class RecordProcessor implements IRecordProcessor {
           speedsCache.put(sourceID, speeds);
         } else {
           //Check if speeds needs trimming
-          long currentWindowStart = timestamp - TRIP_CHECK_WINDOW_MILLIS;
+          long currentWindowStart = timestamp - START_TRIP_CHECK_WINDOW_MILLIS;
           if (speeds.size() > 0) {
             long firstKey = speeds.firstKey();
             if(firstKey < currentWindowStart){
@@ -269,7 +276,8 @@ public class RecordProcessor implements IRecordProcessor {
         //Now check avg speed
         //If we have sufficient data
         LOG.info("SPEED WINDOW: " + speeds.firstKey() + "|" + speeds.lastKey() + " Diff: " + (speeds.lastKey() - speeds.firstKey()));
-        if((speeds.lastKey() - speeds.firstKey()) > (TRIP_CHECK_WINDOW_MILLIS/2) ) {
+        //If critical number of samples
+        if((speeds.lastKey() - speeds.firstKey()) > (START_TRIP_CHECK_WINDOW_MILLIS/2) ) {
           double sumSpeed = 0;
           double avgSpeed = 0;
           for (long time : speeds.keySet())
@@ -317,9 +325,8 @@ public class RecordProcessor implements IRecordProcessor {
     
   }
   
-  private void checkIfTripEnded(Distance distance, String accountID, String sourceID, double speed, long timestamp) {
+  private void checkIfTripEnded(DailyDistance distance, String accountID, String sourceID, double speed, long timestamp) {
 
-    //TODO
     //Insert new speed into the time sliced map
     //Check avg speed, if below critical speed then trip ended
     //If trip ended, update cache, firebase status and trip entry
@@ -334,7 +341,7 @@ public class RecordProcessor implements IRecordProcessor {
           speedsCache.put(sourceID, speeds);
         } else {
           //Check if speeds needs trimming
-          long currentWindowStart = timestamp - TRIP_CHECK_WINDOW_MILLIS;
+          long currentWindowStart = timestamp - END_TRIP_CHECK_WINDOW_MILLIS;
           if (speeds.size() > 0) {
             long firstKey = speeds.firstKey();
             if(firstKey < currentWindowStart){
@@ -351,7 +358,7 @@ public class RecordProcessor implements IRecordProcessor {
         //Now check avg speed
         //If we have sufficient data
         LOG.info("SPEED WINDOW: " + speeds.firstKey() + "|" + speeds.lastKey() + " Diff: " + (speeds.lastKey() - speeds.firstKey()));
-        if((speeds.lastKey() - speeds.firstKey()) > (TRIP_CHECK_WINDOW_MILLIS/2) ) {
+        if((speeds.lastKey() - speeds.firstKey()) > (END_TRIP_CHECK_WINDOW_MILLIS/2) ) {
           double sumSpeed = 0;
           double avgSpeed = 0;
           for (long time : speeds.keySet())
@@ -361,37 +368,87 @@ public class RecordProcessor implements IRecordProcessor {
           if (avgSpeed <= NOT_MOVING_AVG_SPEED) {
             //Ended!
             String tripName = distance.getCurrentTripID();
-            LOG.info("TRIP ENDED: " + tripName);
+            LOG.info("MOVEMENT STOPPED: " + tripName);
             
-            //update cache
-            distance.setRunning(false);
-            distance.setCurrentTripID(null);
-
-            //Status update on firebase
-            Firebase statusRef = firebaseRef.child("/accounts/" + accountID
-                + "/livecars/" + sourceID);
-            Map<String, Object> firebaseStatusUpdate = new HashMap<String, Object>();
-            firebaseStatusUpdate.put("running", false);
-            firebaseStatusUpdate.put("currenttripid", null);
-            statusRef.updateChildren(firebaseStatusUpdate);
-            //statusRef.setValue(firebaseStatusUpdate);
-            LOG.info("Updated live car status as stopped: " + tripName);
-            
-            //Trip update on firebase
+            //Further checks on distance, time lapsed
             String tripStartDay = tripName.substring(tripName.length() - 19, tripName.length() -11);
+            long tripStartTime = getEpoch(tripName.substring(tripName.length() - 19, tripName.length()));
             LOG.info("Trip start day extracted as: " + tripStartDay);
             long tripEndTime = speeds.firstKey();
-            SpeedoOdo tripEndData = speeds.get(tripEndTime);
-            Firebase tripRef = firebaseRef.child("/accounts/" + accountID
-                + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
-            Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
-            firebaseTripUpdate.put("endtime", tripEndTime);
-            firebaseTripUpdate.put("endlatitude", tripEndData.getLat());
-            firebaseTripUpdate.put("endlongitude", tripEndData.getLon());
-            firebaseTripUpdate.put("endodo", tripEndData.getDistance());
-            tripRef.updateChildren(firebaseTripUpdate);
-            LOG.info("Updated trip ended data on firebase: " + tripName);            
+            String tripEndDay = getDay(tripEndTime);
             
+            SpeedoOdo tripEndData = speeds.get(tripEndTime);
+            
+            // 1. Check time lapsed
+            if (tripEndTime - tripStartTime >= MIN_TRIP_INTERVAL ) {
+              //Successful trip.
+              //calculate distance
+              if(tripStartDay.equals(tripEndDay)) {
+                //Use daily Odo from trip data stored.
+                Firebase tripRef = firebaseRef.child("/accounts/" + accountID
+                    + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+                tripRef.addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override
+                  public void onDataChange(DataSnapshot snapshot) {
+                    Map<String, Object> trip = (Map<String, Object>) snapshot.getValue();
+                    if(trip != null) {
+                      long startOdo = (Long) trip.get("startodo");
+                      double tripDistance = tripEndData.getDistance() - startOdo;
+                      updateTripEnded(tripName, tripDistance, tripStartDay, tripEndTime, tripEndData, distance, accountID, sourceID);
+                    }
+                  }
+                  @Override
+                  public void onCancelled(FirebaseError firebaseError) {
+                    LOG.error("Unable to connect to firebase: " + firebaseError);
+                  }
+                });
+              } else {
+                //Need to look up end of day odo as a day crossed.
+                Firebase tripRef = firebaseRef.child("/accounts/" + accountID
+                    + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+                tripRef.addListenerForSingleValueEvent(new ValueEventListener() {
+                  @Override
+                  public void onDataChange(DataSnapshot snapshot) {
+                    Map<String, Object> trip = (Map<String, Object>) snapshot.getValue();
+                    if(trip != null) {
+                      long startOdo = (Long) trip.get("startodo");
+                      //Cant use this odo as it is as the day has crossed
+                      //Get end of day data for this device from daily activity
+                      //tripDistance = (endOfDay Odo - startOdo) + tripEndData Odo
+                      Firebase dailyActivityRef = firebaseRef.child("/accounts/" + accountID
+                          + "/activity/devices/" + sourceID + "/daily/" + tripStartDay);
+                      dailyActivityRef.addListenerForSingleValueEvent(new ValueEventListener() {
+                        @Override
+                        public void onDataChange(DataSnapshot snapshot) {
+                          Map<String, Object> activity = (Map<String, Object>) snapshot.getValue();
+                          if( (activity != null) && (activity.get("distance") != null) ) {
+                            double dailyDistance = (Double) activity.get("distance");
+                            double tripDistance = (dailyDistance - startOdo) + tripEndData.getDistance();
+                            updateTripEnded(tripName, tripDistance, tripStartDay, tripEndTime, tripEndData, distance, accountID, sourceID);
+                          } else {
+                            // something fishy, reset trip
+                            resetTrip(tripName, tripStartDay, distance, accountID, sourceID);
+                          }
+                        }
+                        @Override
+                        public void onCancelled(FirebaseError firebaseError) {
+                          LOG.error("Unable to connect to firebase: " + firebaseError);
+                        }
+                      });
+                    }
+                  }
+                  @Override
+                  public void onCancelled(FirebaseError firebaseError) {
+                    LOG.error("Unable to connect to firebase: " + firebaseError);
+                  }
+                });
+                
+              }
+            } else {
+              // Trip interval insignificant, reset the trip start.
+              resetTrip(tripName, tripStartDay, distance, accountID, sourceID);
+            }
+
           } else
             LOG.info("STILL MOVING...: " + sourceID);
         } else
@@ -401,22 +458,72 @@ public class RecordProcessor implements IRecordProcessor {
     }
   }
   
-  private void calculateNewDistance(Distance distance, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
-    if(distance.getPrevTimestamp() < locationTimestamp) {
+  private void updateTripEnded(String tripName, double tripDistance, String tripStartDay, long tripEndTime, SpeedoOdo tripEndData, DailyDistance ddCached, String accountID, String sourceID) {
+    //update cache
+    ddCached.setRunning(false);
+    ddCached.setCurrentTripID(null);
+    
+    //Status update on firebase
+    Firebase statusRef = firebaseRef.child("/accounts/" + accountID
+        + "/livecars/" + sourceID);
+    Map<String, Object> firebaseStatusUpdate = new HashMap<String, Object>();
+    firebaseStatusUpdate.put("running", false);
+    firebaseStatusUpdate.put("currenttripid", null);
+    statusRef.updateChildren(firebaseStatusUpdate);
+    //statusRef.setValue(firebaseStatusUpdate);
+    LOG.info("Updated live car status as stopped: " + tripName);
+    
+    //Trip update on firebase
+    Firebase tripRef = firebaseRef.child("/accounts/" + accountID
+        + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+    Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
+    firebaseTripUpdate.put("endtime", tripEndTime);
+    firebaseTripUpdate.put("endlatitude", tripEndData.getLat());
+    firebaseTripUpdate.put("endlongitude", tripEndData.getLon());
+    firebaseTripUpdate.put("endodo", tripEndData.getDistance());
+    firebaseTripUpdate.put("tripdistance", tripDistance);
+    tripRef.updateChildren(firebaseTripUpdate);
+    LOG.info("Updated trip ended data on firebase: " + tripName);            
+  }
+  
+  private void resetTrip(String tripName, String tripStartDay, DailyDistance ddCached, String accountID, String sourceID) {
+    //update cache
+    ddCached.setRunning(false);
+    ddCached.setCurrentTripID(null);
+    
+    //remove status on firebase
+    Firebase statusRef = firebaseRef.child("/accounts/" + accountID
+        + "/livecars/" + sourceID);
+    Map<String, Object> firebaseStatusUpdate = new HashMap<String, Object>();
+    firebaseStatusUpdate.put("running", false);
+    firebaseStatusUpdate.put("currenttripid", null);
+    statusRef.updateChildren(firebaseStatusUpdate);
+    //statusRef.setValue(firebaseStatusUpdate);
+    LOG.info("Updated live car status as stopped: " + tripName);
+    
+    //Trip update on firebase
+    Firebase tripRef = firebaseRef.child("/accounts/" + accountID
+        + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+    tripRef.removeValue();
+    LOG.info("Removed trip ended data on firebase: " + tripName);            
+  }
+  
+  private void calculateNewDistance(DailyDistance distanceCached, String locationAccountID, String locationSourceID, double locationLat, double locationLong, long locationTimestamp, Firebase distanceRef){
+    if(distanceCached.getPrevTimestamp() < locationTimestamp) {
       // 3. With new location, calculate new distance
       double travel = 0;
-      travel = calcDistance(distance.getPrevLat(),
-          distance.getPrevLong(), locationLat, locationLong, 'K');
+      travel = calcDistance(distanceCached.getPrevLat(),
+          distanceCached.getPrevLong(), locationLat, locationLong, 'K');
       LOG.info("Tavel: " + locationSourceID + "|" + travel);
       // Ignore if this travel is abnormal (very less or very high)
       if ((travel < 0.004) || (travel > 0.5))
         travel = 0;
-      double newTravel = travel + distance.getDistance();
+      double newTravel = travel + distanceCached.getDistance();
       LOG.info("New Distance: " + locationSourceID + "|" + newTravel);
-      distance.setDistance(newTravel);
-      distance.setPrevLat(locationLat);
-      distance.setPrevLong(locationLong);
-      distance.setPrevTimestamp(locationTimestamp);
+      distanceCached.setDistance(newTravel);
+      distanceCached.setPrevLat(locationLat);
+      distanceCached.setPrevLong(locationLong);
+      distanceCached.setPrevTimestamp(locationTimestamp);
       // 4. Update the new distance to firebase
       Map<String, Object> firebaseUpdate = new HashMap<String, Object>();
       firebaseUpdate.put("distance", newTravel);
@@ -426,18 +533,21 @@ public class RecordProcessor implements IRecordProcessor {
       distanceRef.setValue(firebaseUpdate);
       // 5. Send back to kinesis for aggregation
       //Send just the incremental travel
-      JSONObject distanceJson = new JSONObject();
-      distanceJson.put("account_id", locationAccountID);
-      distanceJson.put("source_id", locationSourceID);
-      distanceJson.put("distance", travel);
-      distanceJson.put("timestamp", locationTimestamp);
-      String distanceEvent = distanceJson.toString();
-      LOG.info("DISTANCE EVENT TO KINESIS: " + distanceEvent);
-      PutRecordRequest putRecordRequest = new PutRecordRequest();
-      putRecordRequest.setStreamName("stick-distances");
-      putRecordRequest.setData(ByteBuffer.wrap( distanceEvent.getBytes() ));
-      putRecordRequest.setPartitionKey(locationAccountID);  
-      amazonKinesisClient.putRecord( putRecordRequest );
+      //Send only if distance > 0
+      if (travel > 0) {
+        JSONObject distanceJson = new JSONObject();
+        distanceJson.put("account_id", locationAccountID);
+        distanceJson.put("source_id", locationSourceID);
+        distanceJson.put("distance", travel);
+        distanceJson.put("timestamp", locationTimestamp);
+        String distanceEvent = distanceJson.toString();
+        LOG.info("DISTANCE EVENT TO KINESIS: " + distanceEvent);
+        PutRecordRequest putRecordRequest = new PutRecordRequest();
+        putRecordRequest.setStreamName("stick-distances");
+        putRecordRequest.setData(ByteBuffer.wrap( distanceEvent.getBytes() ));
+        putRecordRequest.setPartitionKey(locationAccountID);  
+        amazonKinesisClient.putRecord( putRecordRequest );
+      }
     } else 
       LOG.info("Not calculating new distance as timestamps are not in order");
   }
@@ -530,6 +640,18 @@ public class RecordProcessor implements IRecordProcessor {
     format.setTimeZone(TimeZone.getTimeZone("UTC"));
     String datetime = format.format(new Date(timestamp));
     return datetime;
+  }
+  
+  private long getEpoch(String datetime) {
+    SimpleDateFormat format = new SimpleDateFormat("yyyyMMdd-HHmmss-SSS");
+    format.setTimeZone(TimeZone.getTimeZone("UTC"));
+    long epoch = 0;
+    try {
+      epoch  = format.parse(datetime).getTime();
+    } catch (ParseException e) {
+      e.printStackTrace();
+    }
+    return epoch;
   }
 
 }
