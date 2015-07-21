@@ -13,8 +13,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.json.JSONObject;
 
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.services.kinesis.AmazonKinesisClient;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.InvalidStateException;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.ShutdownException;
 import com.amazonaws.services.kinesis.clientlibrary.exceptions.ThrottlingException;
@@ -38,7 +36,7 @@ public class RecordProcessor implements IRecordProcessor {
 
   private String shardId;
   private static final Log LOG = LogFactory.getLog(RecordProcessor.class);
-  private Map<String, Double> distancesCache = new HashMap<String, Double>();
+  private Map<String, DailyDistance> distancesCache = new HashMap<String, DailyDistance>();
 
   // Backoff and retry settings
   private static final long BACKOFF_TIME_IN_MILLIS = 3000L;
@@ -47,7 +45,6 @@ public class RecordProcessor implements IRecordProcessor {
   // Checkpoint about once a minute
   private static final long CHECKPOINT_INTERVAL_MILLIS = 60 * 000L;
   private long nextCheckpointTimeInMillis;
-  private AmazonKinesisClient amazonKinesisClient = new AmazonKinesisClient(new DefaultAWSCredentialsProviderChain());
 
   private final CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
 
@@ -136,8 +133,8 @@ public class RecordProcessor implements IRecordProcessor {
         + "/activity/daily/" + day);
     
     //2. Get previous event in cache
-    Double prevDistance = distancesCache.get(accountID);
-    if(prevDistance == null) {
+    DailyDistance prevDistance = distancesCache.get(accountID);
+    if( (prevDistance == null) || (!prevDistance.getDay().equals(day)) ) {
       LOG.info("Distance not cached for: " + accountID + "|" + day);
       distanceRef.addListenerForSingleValueEvent(new ValueEventListener() {
         @Override
@@ -160,7 +157,7 @@ public class RecordProcessor implements IRecordProcessor {
         }
       });
     } else
-      incrementDistance(accountID, prevDistance, increment, timestamp, distanceRef);
+      incrementDistance(accountID, prevDistance.getDistance(), increment, timestamp, distanceRef);
     
     return true;
   }
@@ -169,7 +166,7 @@ public class RecordProcessor implements IRecordProcessor {
   private void incrementDistance(String accountID, Double prevDistance, Double increment, Long timestamp, Firebase distanceRef) {
     //Update distancesCache with incremented value
     Double newDistance = prevDistance + increment;
-    distancesCache.put(accountID, newDistance);
+    distancesCache.put(accountID, new DailyDistance(getDay(timestamp), newDistance));
     //Update new distance in Firebase
     Map<String, Object> firebaseUpdate = new HashMap<String, Object>();
     firebaseUpdate.put("distance", newDistance);
