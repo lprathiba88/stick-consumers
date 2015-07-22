@@ -182,7 +182,13 @@ public class RecordProcessor implements IRecordProcessor {
                   locationLong, locationTimestamp, false, null));
                */
             } else {
-              double prevTravel = (Double)dailyActivity.get("distance");
+              double prevTravel = 0;
+              try {
+                prevTravel = (Double)dailyActivity.get("distance");
+              } catch (Exception e) {
+                LOG.error("DISTANCE NOT STORED AS NUMBER IN FIREBASE" + e);
+                prevTravel = 0;
+              }
               double prevLat = (Double)dailyActivity.get("latitude");
               double prevLong = (Double)dailyActivity.get("longitude");
               long prevTs = (Long)dailyActivity.get("timestamp");
@@ -225,7 +231,10 @@ public class RecordProcessor implements IRecordProcessor {
           LOG.info("Running status not updated in firebase: " + sourceID);
           d = new DailyDistance(0, lat, lon, timestamp, false, null);
         } else {
-          boolean running = (Boolean)live.get("running");
+          Boolean runningStatus = (Boolean)live.get("running");
+          boolean running = false;
+          if (runningStatus != null)
+            running = runningStatus;
           String currentTripID = (String)live.get("currenttripid");
           LOG.info("Running status present in firebase: " + sourceID
               + "|" + running +  "|" + currentTripID);
@@ -234,11 +243,11 @@ public class RecordProcessor implements IRecordProcessor {
         distancesCache.put(sourceID, d);  
         if(calcDistance) {
           calculateNewDistance(d, accountID, sourceID, newLat, newLong, newTs, distanceRef);
+          if(d.getRunning())
+            checkIfTripEnded(d, accountID, sourceID, newSpeed, newTs);
+          else
+            checkIfTripStarted(d, accountID, sourceID, newSpeed, newTs);
         }
-        if(d.getRunning())
-          checkIfTripEnded(d, accountID, sourceID, newSpeed, newTs);
-        else
-          checkIfTripStarted(d, accountID, sourceID, newSpeed, newTs);
       }
       @Override
       public void onCancelled(FirebaseError firebaseError) {
@@ -528,6 +537,7 @@ public class RecordProcessor implements IRecordProcessor {
       if ((travel < 0.004) || (travel > 0.5))
         travel = 0;
       double newTravel = travel + distanceCached.getDistance();
+      LOG.info("Prev Distance: " + locationSourceID + "|" + distanceCached.getDistance());
       LOG.info("New Distance: " + locationSourceID + "|" + newTravel);
       distanceCached.setDistance(newTravel);
       distanceCached.setPrevLat(locationLat);
@@ -626,7 +636,11 @@ public class RecordProcessor implements IRecordProcessor {
     }
     double roundedDist = 0;
     roundedDist = Precision.round(dist, 3);
-    return (roundedDist);
+    LOG.info("Rounded distance: " + roundedDist);
+    if(Double.isNaN(roundedDist))
+      return 0;
+    else
+      return roundedDist;
   }
 
   private double deg2rad(double deg) {
