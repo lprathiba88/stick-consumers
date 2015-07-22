@@ -57,7 +57,7 @@ public class RecordProcessor implements IRecordProcessor {
    * A trip is recorded when there is movement recorded for MIN_TRIP_INTERVAL
    */
   private static final long START_TRIP_CHECK_WINDOW_MILLIS = 10000L;
-  private static final long END_TRIP_CHECK_WINDOW_MILLIS = 300000L;
+  private static final long END_TRIP_CHECK_WINDOW_MILLIS = 600000L;
   private static final float NOT_MOVING_AVG_SPEED = 1.6f;
   private static final long MIN_TRIP_INTERVAL = 60000L;
   private static final float SPEED_NOISE_CUTOFF = 55.55f;
@@ -389,7 +389,7 @@ public class RecordProcessor implements IRecordProcessor {
             String tripStartDay = tripName.substring(tripName.length() - 19, tripName.length() -11);
             long tripStartTime = getEpoch(tripName.substring(tripName.length() - 19, tripName.length()));
             LOG.info("Trip start day extracted as: " + tripStartDay);
-            long tripEndTime = speeds.firstKey();
+            long tripEndTime = speeds.lastKey();
             String tripEndDay = getDay(tripEndTime);
             
             SpeedoOdo tripEndData = speeds.get(tripEndTime);
