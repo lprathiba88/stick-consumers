@@ -1,5 +1,6 @@
 package io.logbase.stick.kinesis.consumer.locationsdistance;
 
+import io.logbase.geo.utils.GeoCoder;
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.DailyDistance;
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.SpeedoOdo;
 
@@ -73,6 +74,7 @@ public class RecordProcessor implements IRecordProcessor {
   private final CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
 
   private Firebase firebaseRef = new Firebase("https://logbasedev.firebaseio.com/");
+  private static final String GMAP_API_KEY = System.getenv("GMAP_API_KEY");
 
   @Override
   public void initialize(String shardId) {
@@ -94,7 +96,8 @@ public class RecordProcessor implements IRecordProcessor {
     };
     // Authenticate users with a custom Firebase token
     firebaseRef.authWithCustomToken(System.getenv("FIREBASE_SECRET"), authResultHandler);
-    
+    if(GMAP_API_KEY == null)
+      LOG.error("GMAP API KEY Env variable not set");
   }
 
   @Override
@@ -307,11 +310,14 @@ public class RecordProcessor implements IRecordProcessor {
             SpeedoOdo tripStartData = speeds.get(tripStartTime);
             Firebase tripRef = firebaseRef.child("/accounts/" + accountID
                 + "/trips/devices/" + sourceID + "/daily/" + getDay(tripStartTime) + "/" + tripName);
+            //Rev GeoCode
+            String address = GeoCoder.revGeocode(GMAP_API_KEY, tripStartData.getLat(), tripStartData.getLon(), 1);
             Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
             firebaseTripUpdate.put("starttime", tripStartTime);
             firebaseTripUpdate.put("startlatitude", tripStartData.getLat());
             firebaseTripUpdate.put("startlongitude", tripStartData.getLon());
             firebaseTripUpdate.put("startodo", tripStartData.getDistance());
+            firebaseTripUpdate.put("startaddress", address);
             tripRef.setValue(firebaseTripUpdate);
             LOG.info("Updated trip started data on firebase: " + tripName);            
             
@@ -476,12 +482,15 @@ public class RecordProcessor implements IRecordProcessor {
     //Trip update on firebase
     Firebase tripRef = firebaseRef.child("/accounts/" + accountID
         + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+    //Rev GeoCode
+    String address = GeoCoder.revGeocode(GMAP_API_KEY, tripEndData.getLat(), tripEndData.getLon(), 1);
     Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
     firebaseTripUpdate.put("endtime", tripEndTime);
     firebaseTripUpdate.put("endlatitude", tripEndData.getLat());
     firebaseTripUpdate.put("endlongitude", tripEndData.getLon());
     firebaseTripUpdate.put("endodo", tripEndData.getDistance());
     firebaseTripUpdate.put("tripdistance", tripDistance);
+    firebaseTripUpdate.put("endaddress", address);
     tripRef.updateChildren(firebaseTripUpdate);
     LOG.info("Updated trip ended data on firebase: " + tripName);            
   }
