@@ -407,7 +407,7 @@ public class RecordProcessor implements IRecordProcessor {
                   public void onDataChange(DataSnapshot snapshot) {
                     Map<String, Object> trip = (Map<String, Object>) snapshot.getValue();
                     if(trip != null) {
-                      long startOdo = (Long) trip.get("startodo");
+                      double startOdo = (Double) trip.get("startodo");
                       double tripDistance = tripEndData.getDistance() - startOdo;
                       updateTripEnded(tripName, tripDistance, tripStartDay, tripEndTime, tripEndData, distance, accountID, sourceID);
                     }
