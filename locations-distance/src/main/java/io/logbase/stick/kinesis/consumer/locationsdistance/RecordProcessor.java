@@ -57,7 +57,7 @@ public class RecordProcessor implements IRecordProcessor {
    * A trip is recorded when there is movement recorded for MIN_TRIP_INTERVAL
    */
   private static final long START_TRIP_CHECK_WINDOW_MILLIS = 10000L;
-  private static final long END_TRIP_CHECK_WINDOW_MILLIS = 600000L;
+  private static final long END_TRIP_CHECK_WINDOW_MILLIS = 300000L;
   private static final float NOT_MOVING_AVG_SPEED = 1.6f;
   private static final long MIN_TRIP_INTERVAL = 60000L;
   private static final float SPEED_NOISE_CUTOFF = 55.55f;
@@ -373,7 +373,7 @@ public class RecordProcessor implements IRecordProcessor {
         //Now check avg speed
         //If we have sufficient data
         LOG.info("SPEED WINDOW: " + speeds.firstKey() + "|" + speeds.lastKey() + " Diff: " + (speeds.lastKey() - speeds.firstKey()));
-        if((speeds.lastKey() - speeds.firstKey()) > (END_TRIP_CHECK_WINDOW_MILLIS/2) ) {
+        if((speeds.lastKey() - speeds.firstKey()) > (END_TRIP_CHECK_WINDOW_MILLIS * 0.80) ) {
           double sumSpeed = 0;
           double avgSpeed = 0;
           for (long time : speeds.keySet())
