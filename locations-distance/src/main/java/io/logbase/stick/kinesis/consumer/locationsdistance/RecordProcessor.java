@@ -1,6 +1,7 @@
 package io.logbase.stick.kinesis.consumer.locationsdistance;
 
-import io.logbase.geo.utils.GeoCoder;
+import com.google.maps.model.LatLng;
+import io.logbase.geo.utils.GeoLocation;
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.DailyDistance;
 import io.logbase.stick.kinesis.consumer.locationsdistance.models.SpeedoOdo;
 
@@ -319,8 +320,14 @@ public class RecordProcessor implements IRecordProcessor {
             SpeedoOdo tripStartData = speeds.get(tripStartTime);
             Firebase tripRef = firebaseRef.child("/accounts/" + accountID
                 + "/trips/devices/" + sourceID + "/daily/" + getDay(tripStartTime) + "/" + tripName);
+
+            //Rev Geocode updated
+            LatLng latLng = new LatLng(tripStartData.getLat(),tripStartData.getLon());
+            String locationType = "SUBLOCALITY";
+            String address = GeoLocation.getLocation(latLng,GMAP_API_KEY,locationType);
+
             //Rev GeoCode
-            String address = GeoCoder.revGeocode(GMAP_API_KEY, tripStartData.getLat(), tripStartData.getLon(), 1);
+            //String address = GeoCoder.revGeocode(GMAP_API_KEY, tripStartData.getLat(), tripStartData.getLon(), 1);
             Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
             firebaseTripUpdate.put("starttime", tripStartTime);
             firebaseTripUpdate.put("startlatitude", tripStartData.getLat());
@@ -491,8 +498,14 @@ public class RecordProcessor implements IRecordProcessor {
     //Trip update on firebase
     Firebase tripRef = firebaseRef.child("/accounts/" + accountID
         + "/trips/devices/" + sourceID + "/daily/" + tripStartDay + "/" + tripName);
+
+    //Rev Geocode updated
+    LatLng latLng = new LatLng(tripEndData.getLat(),tripEndData.getLon());
+    String locationType = "SUBLOCALITY";
+    String address = GeoLocation.getLocation(latLng, GMAP_API_KEY, locationType);
+
     //Rev GeoCode
-    String address = GeoCoder.revGeocode(GMAP_API_KEY, tripEndData.getLat(), tripEndData.getLon(), 1);
+    //String address = GeoCoder.revGeocode(GMAP_API_KEY, tripEndData.getLat(), tripEndData.getLon(), 1);
     Map<String, Object> firebaseTripUpdate = new HashMap<String, Object>();
     firebaseTripUpdate.put("endtime", tripEndTime);
     firebaseTripUpdate.put("endlatitude", tripEndData.getLat());

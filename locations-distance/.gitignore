@@ -12,3 +12,4 @@ buildNumber.properties
 events/
 .classpath
 .project
+.idea
